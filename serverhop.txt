@@ -10,27 +10,27 @@ local LocalPlayer = Players.LocalPlayer
 local currentPlaceId = game.PlaceId
 local guiParent = pcall(function() return CoreGui.Name end) and CoreGui or LocalPlayer:WaitForChild("PlayerGui")
 
-if guiParent:FindFirstChild("UltimateServerHopper") then
-    guiParent.UltimateServerHopper:Destroy()
+if guiParent:FindFirstChild("NfernoServerbhopper") then
+    guiParent.NfernoServerbhopper:Destroy()
 end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "UltimateServerHopper"
+ScreenGui.Name = "NfernoServerbhopper"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = guiParent
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 260, 0, 190)
-MainFrame.Position = UDim2.new(0.5, -130, 0.5, -95)
+MainFrame.Size = UDim2.new(0, 260, 0, 210)
+MainFrame.Position = UDim2.new(0.5, -130, 0.5, -105)
 MainFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 MainFrame.BorderSizePixel = 0
 MainFrame.Parent = ScreenGui
 
--- Sleek Black-to-White Gradient
+-- Nferno Sleek Gradient
 local UIGradient = Instance.new("UIGradient")
 UIGradient.Color = ColorSequence.new{
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(15, 15, 15)),   
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(230, 230, 230)) 
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(12, 12, 12)),   
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(220, 220, 220)) 
 }
 UIGradient.Rotation = 90
 UIGradient.Parent = MainFrame
@@ -49,10 +49,10 @@ local TitleLabel = Instance.new("TextLabel")
 TitleLabel.Size = UDim2.new(1, -40, 1, 0)
 TitleLabel.Position = UDim2.new(0, 10, 0, 0)
 TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "⚡NFERNO SERVER HOPPER ⚡"
+TitleLabel.Text = "🔥 NFERNO SERVERBHOPPER"
 TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 TitleLabel.Font = Enum.Font.GothamBlack
-TitleLabel.TextSize = 15
+TitleLabel.TextSize = 13
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 TitleLabel.Parent = TopBar
 
@@ -76,7 +76,7 @@ PlayerInput.Size = UDim2.new(0, 230, 0, 40)
 PlayerInput.Position = UDim2.new(0.5, -115, 0, 50)
 PlayerInput.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 PlayerInput.TextColor3 = Color3.fromRGB(255, 255, 255)
-PlayerInput.PlaceholderText = "Target Players (e.g. 1)"
+PlayerInput.PlaceholderText = "Target Players (e.g. 0)"
 PlayerInput.Font = Enum.Font.GothamMedium
 PlayerInput.TextSize = 14
 PlayerInput.Parent = MainFrame
@@ -101,19 +101,42 @@ ButtonCorner.Parent = HopButton
 
 local StatusLabel = Instance.new("TextLabel")
 StatusLabel.Size = UDim2.new(1, 0, 0, 20)
-StatusLabel.Position = UDim2.new(0, 0, 1, -25)
+StatusLabel.Position = UDim2.new(0, 0, 1, -45)
 StatusLabel.BackgroundTransparency = 1
-StatusLabel.Text = "Game ID: " .. tostring(currentPlaceId)
+StatusLabel.Text = "Ready to hop!"
 StatusLabel.TextColor3 = Color3.fromRGB(30, 30, 30)
 StatusLabel.Font = Enum.Font.GothamBold
 StatusLabel.TextSize = 11
 StatusLabel.Parent = MainFrame
--- Close Button Logic
-CloseButton.MouseButton1Click:Connect(function()
-    ScreenGui:Destroy()
+
+local GameIdButton = Instance.new("TextButton")
+GameIdButton.Size = UDim2.new(1, 0, 0, 20)
+GameIdButton.Position = UDim2.new(0, 0, 1, -25)
+GameIdButton.BackgroundTransparency = 1
+GameIdButton.Text = "ID: " .. tostring(currentPlaceId) .. " (Click to Copy)"
+GameIdButton.TextColor3 = Color3.fromRGB(0, 80, 180)
+GameIdButton.Font = Enum.Font.GothamBold
+GameIdButton.TextSize = 11
+GameIdButton.Parent = MainFrame
+-- UI Functionality
+CloseButton.MouseButton1Click:Connect(function() ScreenGui:Destroy() end)
+
+GameIdButton.MouseButton1Click:Connect(function()
+    if setclipboard then
+        setclipboard(tostring(currentPlaceId))
+        GameIdButton.Text = "Copied to Clipboard!"
+        GameIdButton.TextColor3 = Color3.fromRGB(0, 150, 0)
+        task.wait(2)
+        GameIdButton.Text = "ID: " .. tostring(currentPlaceId) .. " (Click to Copy)"
+        GameIdButton.TextColor3 = Color3.fromRGB(0, 80, 180)
+    else
+        GameIdButton.Text = "Executor doesn't support copying."
+        task.wait(2)
+        GameIdButton.Text = "ID: " .. tostring(currentPlaceId) .. " (Click to Copy)"
+    end
 end)
 
--- Smooth Draggable Logic (Bound to TopBar)
+-- Smooth Draggable Logic
 local dragging, dragInput, dragStart, startPos
 TopBar.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -132,16 +155,24 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 
 local isSearching = false
+local badServers = {} -- PRO FEATURE: Remembers and skips broken/restricted servers!
+local attemptingServerId = nil
 
+-- Auto-Stop & Blacklist on Teleport Failure
 TeleportService.TeleportInitFailed:Connect(function()
-    if isSearching then
-        StatusLabel.Text = "Bypassing restricted server..."
-        task.wait(1.5)
+    if isSearching or attemptingServerId then
+        if attemptingServerId then
+            badServers[attemptingServerId] = true -- Blacklists the broken server
+        end
+        isSearching = false
+        HopButton.Text = "TELEPORT"
+        HopButton.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+        StatusLabel.Text = "Hop Failed! Server Blacklisted."
+        StatusLabel.TextColor3 = Color3.fromRGB(200, 40, 40)
     end
 end)
 
 local function findAndHopServer(targetPlayers)
-    -- Ascending order instantly checks empty/small servers first
     local url = "https://games.roblox.com/v1/games/" .. currentPlaceId .. "/servers/Public?sortOrder=Asc&excludeFullGames=true&limit=100"
     local cursor = ""
 
@@ -149,13 +180,9 @@ local function findAndHopServer(targetPlayers)
         local fetchUrl = (cursor == "") and url or url .. "&cursor=" .. cursor
         local success, result = pcall(function() return game:HttpGet(fetchUrl) end)
         
-        if not success then
-            StatusLabel.Text = "Network error, retrying..."
-            task.wait(1)
-            continue
-        elseif result:match("TooManyRequests") then
-            StatusLabel.Text = "Rate limited. Waiting 3s..."
-            task.wait(3)
+        if not success or result:match("TooManyRequests") then
+            StatusLabel.Text = "Network/Rate Limit. Retrying..."
+            task.wait(2)
             continue
         end
 
@@ -164,12 +191,15 @@ local function findAndHopServer(targetPlayers)
             local foundServer = nil
 
             for _, server in ipairs(decodedData.data) do
-                -- FILTER: Ping > 0 ensures it's not a dead ghost server. 
-                -- FILTER: Ping < 300 & FPS > 15 ensures it's updating in real-time, preventing the "1 player but actually 4" bug!
-                local isLiveServer = type(server.ping) == "number" and server.ping > 0 and server.ping < 300 and server.fps > 15
+                -- PRO FILTERS: 
+                -- 1. Must not be in badServers list (Bypasses infinite Blox Fruits restricted loops)
+                -- 2. Ping < 200 ensures the player count cache is accurate and live.
+                -- 3. Excludes current server.
+                local isLive = type(server.ping) == "number" and server.ping > 0 and server.ping < 200 and server.fps > 15
                 local isNotCurrent = server.id ~= game.JobId
+                local isNotBlacklisted = not badServers[server.id]
 
-                if isLiveServer and isNotCurrent then
+                if isLive and isNotCurrent and isNotBlacklisted then
                     if server.playing == targetPlayers then
                         foundServer = server.id
                         break
@@ -177,7 +207,8 @@ local function findAndHopServer(targetPlayers)
                 end
             end
 
-            if foundServer then
+            if foundServer and isSearching then
+                attemptingServerId = foundServer
                 StatusLabel.Text = "Live Server Found! Joining..."
                 StatusLabel.TextColor3 = Color3.fromRGB(0, 120, 0)
                 
@@ -185,11 +216,11 @@ local function findAndHopServer(targetPlayers)
                     TeleportService:TeleportToPlaceInstance(currentPlaceId, foundServer, LocalPlayer)
                 end)
                 
-                task.wait(6) 
+                task.wait(8) -- Gives roblox 8 seconds to process teleport before failing
                 continue 
             end
 
-            if decodedData.nextPageCursor then
+            if decodedData.nextPageCursor and isSearching then
                 cursor = decodedData.nextPageCursor
                 StatusLabel.Text = "Scanning next page..."
             else
@@ -201,18 +232,21 @@ local function findAndHopServer(targetPlayers)
         end
     end
 
-    isSearching = false
-    HopButton.Text = "TELEPORT"
-    HopButton.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-    StatusLabel.TextColor3 = Color3.fromRGB(30, 30, 30)
-    if not StatusLabel.Text:match("Servers match") then
-        StatusLabel.Text = "Search Stopped."
+    if isSearching then -- If loop broke but user didn't cancel
+        isSearching = false
+        HopButton.Text = "TELEPORT"
+        HopButton.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+        if not StatusLabel.Text:match("Servers match") then
+            StatusLabel.Text = "Search Finished."
+            StatusLabel.TextColor3 = Color3.fromRGB(30, 30, 30)
+        end
     end
 end
 
 HopButton.MouseButton1Click:Connect(function()
     if isSearching then
         isSearching = false
+        attemptingServerId = nil
         HopButton.Text = "TELEPORT"
         HopButton.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
         StatusLabel.Text = "Search Cancelled."
@@ -224,6 +258,7 @@ HopButton.MouseButton1Click:Connect(function()
     
     if targetAmount and targetAmount >= 0 then
         isSearching = true
+        attemptingServerId = nil
         HopButton.Text = "STOP HOP"
         HopButton.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
         StatusLabel.Text = "Searching for " .. targetAmount .. " players..."
@@ -237,4 +272,3 @@ HopButton.MouseButton1Click:Connect(function()
         StatusLabel.TextColor3 = Color3.fromRGB(200, 0, 0)
     end
 end)
-
