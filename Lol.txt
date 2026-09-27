@@ -1,0 +1,10 @@
+-- Runs locally to simulate a ban screen prompt visually
+local BanMessage = "\n\nConnection Terminated:\nYou Have Been Permanently Banned"
+local currentText = ""
+
+task.wait(1)
+for i = 1, #BanMessage do
+    currentText = currentText .. BanMessage:sub(i, i)
+    game.Players.LocalPlayer:Kick(currentText)
+    task.wait(0.05)
+end
