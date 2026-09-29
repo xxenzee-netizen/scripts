@@ -315,153 +315,47 @@ local function CancelTween()
 
 end
 --==================================================
--- COLLECT CHEST
+-- SMOOTH MOVEMENT SYSTEM
 --==================================================
 
-local function CollectChest(Chest)
+local MovementToken = 0
+local Moving = false
 
-    if not Enabled or not Chest or not Chest.Parent then
-        return
+local function GetRoot()
+
+    local Character = Player.Character
+
+    if not Character then
+        return nil
     end
 
-    local Character = GetCharacter()
-    local Root = Character:FindFirstChild("HumanoidRootPart")
+    return Character:FindFirstChild("HumanoidRootPart")
 
-    if not Root then
-        return
-    end
+end
 
-    local Success, ChestPivot = pcall(function()
-        return Chest:GetPivot()
-    end)
+local function StopMovement()
 
-    if not Success or not ChestPivot then
-        return
-    end
+    MovementToken += 1
+    Moving = false
 
-    --==============================================
-    -- TELEPORT MODE
-    --==============================================
+    if CurrentTween then
 
-    if Mode == "Teleport" then
+        pcall(function()
+            CurrentTween:Cancel()
+        end)
 
-        Character:PivotTo(ChestPivot)
-
-    --==============================================
-    -- TWEEN MODE
-    --==============================================
-
-    else
-
-        CancelTween()
-
-        local Distance =
-            (ChestPivot.Position - Root.Position).Magnitude
-
-        if Distance > 12 then
-
-            local Duration =
-                math.clamp(
-                    Distance / math.max(TweenSpeed, 1),
-                    0.08,
-                    4
-                )
-
-            CurrentTween = TweenService:Create(
-                Root,
-                TweenInfo.new(
-                    Duration,
-                    Enum.EasingStyle.Linear,
-                    Enum.EasingDirection.Out
-                ),
-                {
-                    CFrame = ChestPivot
-                }
-            )
-
-            CurrentTween:Play()
-
-            local Finished = false
-            local Connection
-
-            Connection = CurrentTween.Completed:Connect(function()
-
-                Finished = true
-
-                if Connection then
-                    Connection:Disconnect()
-                end
-
-            end)
-
-            while not Finished and Enabled do
-                task.wait()
-            end
-
-            if not Enabled then
-                CancelTween()
-                return
-            end
-
-        end
+        CurrentTween = nil
 
     end
 
-    --==============================================
-    -- COLLECT CHEST
-    --==============================================
+    local Character = Player.Character
 
-    task.wait(0.05)
+    if Character then
 
-    Root = Character:FindFirstChild("HumanoidRootPart")
+        local Proxy = Character:FindFirstChild("ChestFarmProxy")
 
-    if not Root or not Chest.Parent then
-        return
-    end
-
-    local CurrentPivot
-
-    pcall(function()
-        CurrentPivot = Chest:GetPivot()
-    end)
-
-    if not CurrentPivot then
-        return
-    end
-
-    if (CurrentPivot.Position - Root.Position).Magnitude <= 15 then
-
-        if typeof(firetouchinterest) == "function" then
-
-            pcall(function()
-
-                firetouchinterest(
-                    Chest,
-                    Root,
-                    0
-                )
-
-                firetouchinterest(
-                    Chest,
-                    Root,
-                    1
-                )
-
-            end)
-
-        end
-
-        if typeof(firesignal) == "function" then
-
-            pcall(function()
-
-                firesignal(
-                    Chest.Touched,
-                    Root
-                )
-
-            end)
-
+        if Proxy then
+            Proxy:Destroy()
         end
 
     end
@@ -469,24 +363,459 @@ local function CollectChest(Chest)
 end
 
 --==================================================
--- FARM LOOP
+-- SMOOTH TWEEN TO CHEST
+--==================================================
+
+local function SmoothTweenTo(TargetCFrame)
+
+    local Character = GetCharacter()
+    local Root = GetRoot()
+
+    if not Character or not Root or not Enabled then
+        return false
+    end
+
+    StopMovement()
+
+    local MyToken = MovementToken
+
+    Moving = true
+
+    -- Proxy part.
+    -- This follows the movement pattern used by the
+    -- supplied redz script's PartTele system.
+    local Proxy = Instance.new("Part")
+
+    Proxy.Name = "ChestFarmProxy"
+    Proxy.Size = Vector3.new(2, 1, 2)
+    Proxy.Transparency = 1
+    Proxy.Anchored = true
+    Proxy.CanCollide = false
+    Proxy.CanTouch = false
+    Proxy.CanQuery = false
+    Proxy.CFrame = Root.CFrame
+    Proxy.Parent = Character
+
+    local Distance =
+        (TargetCFrame.Position - Root.Position).Magnitude
+
+    if Distance <= 10 then
+
+        Character:PivotTo(TargetCFrame)
+
+        Proxy:Destroy()
+        Moving = false
+
+        return true
+
+    end
+
+    -- Higher speed = faster movement.
+    local Speed = math.max(TweenSpeed, 1)
+
+    local Duration = math.clamp(
+        Distance / Speed,
+        0.15,
+        8
+    )
+
+    CurrentTween = TweenService:Create(
+        Proxy,
+        TweenInfo.new(
+            Duration,
+            Enum.EasingStyle.Linear,
+            Enum.EasingDirection.InOut
+        ),
+        {
+            CFrame = TargetCFrame
+        }
+    )
+
+    CurrentTween:Play()
+
+    local Completed = false
+
+    local Connection
+
+    Connection = CurrentTween.Completed:Connect(function(State)
+
+        Completed = true
+
+        if Connection then
+            Connection:Disconnect()
+            Connection = nil
+        end
+
+    end)
+
+    -- Smoothly follow the proxy.
+    while Enabled
+        and Moving
+        and MyToken == MovementToken
+        and not Completed do
+
+        Character = Player.Character
+
+        if not Character then
+            break
+        end
+
+        Root = Character:FindFirstChild("HumanoidRootPart")
+
+        if not Root then
+            break
+        end
+
+        if Proxy.Parent then
+
+            -- Move the complete character instead of
+            -- directly tweening HumanoidRootPart.
+            Character:PivotTo(Proxy.CFrame)
+
+        else
+
+            break
+
+        end
+
+        task.wait()
+
+    end
+
+    if Connection then
+        Connection:Disconnect()
+    end
+
+    if CurrentTween then
+
+        pcall(function()
+            CurrentTween:Cancel()
+        end)
+
+        CurrentTween = nil
+
+    end
+
+    if Proxy and Proxy.Parent then
+        Proxy:Destroy()
+    end
+
+    Moving = false
+
+    return Enabled
+        and MyToken == MovementToken
+        and Completed
+
+end
+
+--==================================================
+-- TELEPORT
+--==================================================
+
+local function TeleportToChest(TargetCFrame)
+
+    local Character = GetCharacter()
+
+    if not Character or not Enabled then
+        return false
+    end
+
+    StopMovement()
+
+    Character:PivotTo(TargetCFrame)
+
+    task.wait(0.08)
+
+    return true
+
+end
+
+--==================================================
+-- CHEST COLLECTION
+--==================================================
+
+local function TriggerChest(Chest)
+
+    if not Chest or not Chest.Parent then
+        return false
+    end
+
+    local Character = GetCharacter()
+    local Root = Character:FindFirstChild("HumanoidRootPart")
+
+    if not Root then
+        return false
+    end
+
+    local Success, ChestCFrame =
+        pcall(function()
+            return Chest:GetPivot()
+        end)
+
+    if not Success or not ChestCFrame then
+        return false
+    end
+
+    local Distance =
+        (ChestCFrame.Position - Root.Position).Magnitude
+
+    -- We only trigger the chest when actually close.
+    if Distance > 12 then
+        return false
+    end
+
+    if typeof(firetouchinterest) == "function" then
+
+        pcall(function()
+
+            firetouchinterest(
+                Chest,
+                Root,
+                0
+            )
+
+            task.wait(0.03)
+
+            firetouchinterest(
+                Chest,
+                Root,
+                1
+            )
+
+        end)
+
+    end
+
+    if typeof(firesignal) == "function" then
+
+        pcall(function()
+
+            firesignal(
+                Chest.Touched,
+                Root
+            )
+
+        end)
+
+    end
+
+    return true
+
+end
+
+--==================================================
+-- COLLECT CHEST RELIABLY
+--==================================================
+
+local function CollectChest(Chest)
+
+    if not Enabled
+        or not Chest
+        or not Chest.Parent then
+
+        return false
+
+    end
+
+    local Character = GetCharacter()
+    local Root = Character:FindFirstChild("HumanoidRootPart")
+
+    if not Root then
+        return false
+    end
+
+    local Success, ChestCFrame =
+        pcall(function()
+            return Chest:GetPivot()
+        end)
+
+    if not Success or not ChestCFrame then
+        return false
+    end
+
+    --==============================================
+    -- TWEEN
+    --==============================================
+
+    if Mode == "Tween" then
+
+        local Reached =
+            SmoothTweenTo(ChestCFrame)
+
+        if not Reached then
+            return false
+        end
+
+    --==============================================
+    -- TELEPORT
+    --==============================================
+
+    else
+
+        if not TeleportToChest(ChestCFrame) then
+            return false
+        end
+
+    end
+
+    if not Enabled then
+        return false
+    end
+
+    -- Give Roblox a moment to update character position.
+    task.wait(0.08)
+
+    --==============================================
+    -- FIRST COLLECTION ATTEMPT
+    --==============================================
+
+    TriggerChest(Chest)
+
+    --==============================================
+    -- RETRY COLLECTION
+    --==============================================
+
+    -- Some chests don't register the first touch
+    -- immediately, so retry briefly instead of
+    -- instantly moving to another chest.
+
+    for _ = 1, 6 do
+
+        if not Enabled then
+            return false
+        end
+
+        if not Chest.Parent then
+            return true
+        end
+
+        if Chest:GetAttribute("IsDisabled") then
+            return true
+        end
+
+        local CurrentRoot = GetRoot()
+
+        if not CurrentRoot then
+            return false
+        end
+
+        local CurrentChestCFrame
+
+        pcall(function()
+            CurrentChestCFrame = Chest:GetPivot()
+        end)
+
+        if not CurrentChestCFrame then
+            return true
+        end
+
+        local Distance =
+            (CurrentChestCFrame.Position -
+            CurrentRoot.Position).Magnitude
+
+        if Distance <= 12 then
+
+            TriggerChest(Chest)
+
+        else
+
+            -- If the character was corrected slightly,
+            -- gently return to the chest instead of
+            -- immediately selecting another chest.
+
+            if Mode == "Tween" then
+
+                SmoothTweenTo(CurrentChestCFrame)
+
+            else
+
+                Character:PivotTo(CurrentChestCFrame)
+
+            end
+
+        end
+
+        task.wait(0.12)
+
+    end
+
+    return true
+
+end
+
+--==================================================
+-- FIND CHEST
+--==================================================
+
+local function GetChest()
+
+    local Character = GetCharacter()
+    local Root = Character:FindFirstChild("HumanoidRootPart")
+
+    if not Root then
+        return nil
+    end
+
+    local Closest = nil
+    local ClosestDistance = math.huge
+
+    for _, Chest in ipairs(
+        CollectionService:GetTagged("_ChestTagged")
+    ) do
+
+        if Chest
+            and Chest.Parent
+            and not Chest:GetAttribute("IsDisabled") then
+
+            local Success, Pivot =
+                pcall(function()
+                    return Chest:GetPivot()
+                end)
+
+            if Success and Pivot then
+
+                local Distance =
+                    (Pivot.Position - Root.Position).Magnitude
+
+                if Distance < ClosestDistance then
+
+                    ClosestDistance = Distance
+                    Closest = Chest
+
+                end
+
+            end
+
+        end
+
+    end
+
+    return Closest
+
+end
+
+--==================================================
+-- MAIN FARM LOOP
 --==================================================
 
 task.spawn(function()
 
     while ScreenGui.Parent do
 
-        if Enabled then
+        if Enabled and not Moving then
 
             local Chest = GetChest()
 
             if Chest then
 
                 pcall(function()
+
                     CollectChest(Chest)
+
                 end)
 
-                task.wait(0.1)
+                -- Small delay before choosing the next chest.
+                task.wait(0.15)
 
             else
 
@@ -496,7 +825,7 @@ task.spawn(function()
 
         else
 
-            task.wait(0.15)
+            task.wait(0.1)
 
         end
 
@@ -515,22 +844,26 @@ Toggle.MouseButton1Click:Connect(function()
     if Enabled then
 
         Toggle.Text = "STOP"
+
         Toggle.BackgroundColor3 =
             Color3.fromRGB(45, 110, 65)
 
         Status.Text = "●  Status: ON"
+
         Status.TextColor3 =
             Color3.fromRGB(80, 255, 120)
 
     else
 
-        CancelTween()
+        StopMovement()
 
         Toggle.Text = "START"
+
         Toggle.BackgroundColor3 =
             Color3.fromRGB(45, 45, 55)
 
         Status.Text = "●  Status: OFF"
+
         Status.TextColor3 =
             Color3.fromRGB(255, 80, 80)
 
@@ -547,13 +880,15 @@ ModeButton.MouseButton1Click:Connect(function()
     if Mode == "Tween" then
 
         Mode = "Teleport"
+
         ModeButton.Text = "TELEPORT"
 
-        CancelTween()
+        StopMovement()
 
     else
 
         Mode = "Tween"
+
         ModeButton.Text = "TWEEN"
 
     end
@@ -561,7 +896,7 @@ ModeButton.MouseButton1Click:Connect(function()
 end)
 
 --==================================================
--- SPEED SETTER
+-- SPEED
 --==================================================
 
 SpeedBox.FocusLost:Connect(function()
@@ -628,7 +963,7 @@ Close.MouseButton1Click:Connect(function()
 
     Enabled = false
 
-    CancelTween()
+    StopMovement()
 
     ScreenGui:Destroy()
 
