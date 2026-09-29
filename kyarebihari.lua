@@ -1,1057 +1,1122 @@
-local TweenService = game:GetService("TweenService")
+--// Auto Chest Farm + Auto Raid
+--// Part 1/3
+
 local Players = game:GetService("Players")
+local CollectionService = game:GetService("CollectionService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local Player = Players.LocalPlayer
-local scriptRunning = true
-local speed = 200
-local flyHeight = 10
-local active = false
-local activeTween = nil
-local targetMobs = {} 
-local attackMultiplier = 1 
+
+local Enabled = false
 local AutoRaid = false
+local Mode = "Tween"
+
+local TweenSpeed = 180
+local CurrentTween = nil
+
 local RaidBusy = false
+local RaidToken = 0
 
-local NotifierEnabled = false
-local CurrentFruit = nil
-local WorkspaceConnection = nil
+--==================================================
+-- GUI
+--==================================================
 
------------------------------------
--- PERFORMANCE OPTIMIZATION (LAG FIX)
------------------------------------
--- Drastically reduces lag by only checking relevant models instead of every descendant in the game
-local function getPotentialNPCs()
-    local npcs = {}
-    local enemiesFolder = Workspace:FindFirstChild("Enemies")
-    if enemiesFolder then
-        for _, obj in ipairs(enemiesFolder:GetChildren()) do 
-            table.insert(npcs, obj) 
-        end
-    end
-    for _, obj in ipairs(Workspace:GetChildren()) do 
-        if obj:IsA("Model") and obj ~= Player.Character then 
-            table.insert(npcs, obj) 
-        end 
-    end
-    return npcs
-end
-
------------------------------------
--- STRICT DAMAGEABLE NPC CHECK
------------------------------------
-local function IsDamageableNPC(model)
-    if not model or not model:IsA("Model") then return false end
-    if model == Player.Character then return false end
-    if Players:GetPlayerFromCharacter(model) then return false end
-    
-    local hum = model:FindFirstChildOfClass("Humanoid")
-    local root = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("PrimaryPart") or model:FindFirstChild("Head")
-    
-    if not hum or not root then return false end
-    if hum.Health <= 0 then return false end
-    if hum.MaxHealth >= 999999 or hum.MaxHealth <= 0 then return false end
-    
-    local nameLower = model.Name:lower()
-    local ignored = {"quest", "shop", "dealer", "manager", "captain", "citizen", "merchant", "setter", "bloxfruit", "gacha", "home", "spawn"}
-    for _, keyword in ipairs(ignored) do
-        if nameLower:find(keyword) then return false end
-    end
-    
-    return true
-end
-
------------------------------------
--- UI SETUP (BLACK UP / PURPLE DOWN)
------------------------------------
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "ZenithHubGUI"
+ScreenGui.Name = "ChestRaidFarm"
 ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = Player:WaitForChild("PlayerGui")
 
-local coreGuiExists, coreGui = pcall(function() return game:GetService("CoreGui") end)
-if coreGuiExists and coreGui then
-    ScreenGui.Parent = coreGui
-else
-    ScreenGui.Parent = Player:WaitForChild("PlayerGui")
-end
+local Main = Instance.new("Frame")
+Main.Size = UDim2.new(0, 280, 0, 245)
+Main.Position = UDim2.new(0.5, -140, 0.5, -122)
+Main.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+Main.BorderSizePixel = 0
+Main.Parent = ScreenGui
 
--- Confirmation Menu Overlay
-local ConfirmOverlay = Instance.new("Frame")
-ConfirmOverlay.Size = UDim2.new(1, 0, 1, 0)
-ConfirmOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-ConfirmOverlay.BackgroundTransparency = 0.6
-ConfirmOverlay.Visible = false
-ConfirmOverlay.ZIndex = 50
-ConfirmOverlay.Parent = ScreenGui
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 12)
 
-local ConfirmBox = Instance.new("Frame")
-ConfirmBox.Size = UDim2.new(0, 260, 0, 120)
-ConfirmBox.Position = UDim2.new(0.5, -130, 0.5, -60)
-ConfirmBox.BackgroundColor3 = Color3.fromRGB(20, 10, 30)
-ConfirmBox.ZIndex = 51
-ConfirmBox.Parent = ConfirmOverlay
-Instance.new("UICorner", ConfirmBox).CornerRadius = UDim.new(0, 8)
-Instance.new("UIStroke", ConfirmBox).Color = Color3.fromRGB(150, 50, 255)
+local Stroke = Instance.new("UIStroke")
+Stroke.Color = Color3.fromRGB(65, 65, 75)
+Stroke.Thickness = 1
+Stroke.Parent = Main
 
-local ConfirmText = Instance.new("TextLabel")
-ConfirmText.Size = UDim2.new(1, -20, 0, 60)
-ConfirmText.Position = UDim2.new(0, 10, 0, 10)
-ConfirmText.BackgroundTransparency = 1
-ConfirmText.Text = "Are you sure you want to close the script?"
-ConfirmText.TextColor3 = Color3.fromRGB(255, 255, 255)
-ConfirmText.TextWrapped = true
-ConfirmText.Font = Enum.Font.GothamBold
-ConfirmText.TextSize = 14
-ConfirmText.ZIndex = 52
-ConfirmText.Parent = ConfirmBox
+local TopBar = Instance.new("Frame")
+TopBar.Size = UDim2.new(1, 0, 0, 40)
+TopBar.BackgroundColor3 = Color3.fromRGB(28, 28, 35)
+TopBar.BorderSizePixel = 0
+TopBar.Parent = Main
 
-local YesBtn = Instance.new("TextButton")
-YesBtn.Size = UDim2.new(0, 100, 0, 30)
-YesBtn.Position = UDim2.new(0, 20, 1, -40)
-YesBtn.BackgroundColor3 = Color3.fromRGB(120, 30, 160)
-YesBtn.Text = "Yes"
-YesBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-YesBtn.Font = Enum.Font.GothamBold
-YesBtn.ZIndex = 52
-YesBtn.Parent = ConfirmBox
-Instance.new("UICorner", YesBtn).CornerRadius = UDim.new(0, 4)
+Instance.new("UICorner", TopBar).CornerRadius = UDim.new(0, 12)
 
-local NoBtn = Instance.new("TextButton")
-NoBtn.Size = UDim2.new(0, 100, 0, 30)
-NoBtn.Position = UDim2.new(1, -120, 1, -40)
-NoBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
-NoBtn.Text = "No"
-NoBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-NoBtn.Font = Enum.Font.GothamBold
-NoBtn.ZIndex = 52
-NoBtn.Parent = ConfirmBox
-Instance.new("UICorner", NoBtn).CornerRadius = UDim.new(0, 4)
+local Title = Instance.new("TextLabel")
+Title.Position = UDim2.new(0, 12, 0, 0)
+Title.Size = UDim2.new(1, -90, 1, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "Auto Chest + Raid"
+Title.TextColor3 = Color3.new(1, 1, 1)
+Title.TextSize = 16
+Title.Font = Enum.Font.GothamBold
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = TopBar
 
--- Main Frame Setup
-local MainFrame = Instance.new("Frame")
-MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 240, 0, 440) 
-MainFrame.Position = UDim2.new(0.5, -120, 0.3, 0)
-MainFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Draggable = true
-MainFrame.Parent = ScreenGui
-Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 10)
+local Minimize = Instance.new("TextButton")
+Minimize.Position = UDim2.new(1, -70, 0, 7)
+Minimize.Size = UDim2.new(0, 28, 0, 26)
+Minimize.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+Minimize.Text = "—"
+Minimize.TextColor3 = Color3.new(1, 1, 1)
+Minimize.TextSize = 18
+Minimize.Font = Enum.Font.GothamBold
+Minimize.Parent = TopBar
 
--- Black Top, Purple Bottom Gradient
-local BgGradient = Instance.new("UIGradient", MainFrame)
-BgGradient.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(10, 10, 15)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(80, 20, 140))
-})
-BgGradient.Rotation = 90 
+Instance.new("UICorner", Minimize).CornerRadius = UDim.new(0, 6)
 
-local TitleLabel = Instance.new("TextLabel")
-TitleLabel.Size = UDim2.new(1, -70, 0, 32)
-TitleLabel.Position = UDim2.new(0, 10, 0, 0)
-TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = "⚡ ZENITH HUB ⚡"
-TitleLabel.TextColor3 = Color3.fromRGB(220, 180, 255)
-TitleLabel.TextSize = 14
-TitleLabel.Font = Enum.Font.GothamBold
-TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-TitleLabel.Parent = MainFrame
+local Close = Instance.new("TextButton")
+Close.Position = UDim2.new(1, -36, 0, 7)
+Close.Size = UDim2.new(0, 28, 0, 26)
+Close.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+Close.Text = "×"
+Close.TextColor3 = Color3.fromRGB(255, 100, 100)
+Close.TextSize = 18
+Close.Font = Enum.Font.GothamBold
+Close.Parent = TopBar
 
-local MinimizeBtn = Instance.new("TextButton")
-MinimizeBtn.Size = UDim2.new(0, 24, 0, 24)
-MinimizeBtn.Position = UDim2.new(1, -58, 0, 4)
-MinimizeBtn.BackgroundColor3 = Color3.fromRGB(40, 15, 60)
-MinimizeBtn.Text = "-"
-MinimizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-MinimizeBtn.TextSize = 14
-MinimizeBtn.Font = Enum.Font.GothamBold
-MinimizeBtn.Parent = MainFrame
-Instance.new("UICorner", MinimizeBtn).CornerRadius = UDim.new(0, 4)
+Instance.new("UICorner", Close).CornerRadius = UDim.new(0, 6)
 
-local CloseBtn = Instance.new("TextButton")
-CloseBtn.Size = UDim2.new(0, 24, 0, 24)
-CloseBtn.Position = UDim2.new(1, -30, 0, 4)
-CloseBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
-CloseBtn.Text = "X"
-CloseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-CloseBtn.TextSize = 12
-CloseBtn.Font = Enum.Font.GothamBold
-CloseBtn.Parent = MainFrame
-Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 4)
+local Content = Instance.new("Frame")
+Content.Position = UDim2.new(0, 10, 0, 48)
+Content.Size = UDim2.new(1, -20, 1, -58)
+Content.BackgroundTransparency = 1
+Content.Parent = Main
 
-local Container = Instance.new("Frame")
-Container.Size = UDim2.new(1, 0, 1, -47)
-Container.Position = UDim2.new(0, 0, 0, 32)
-Container.BackgroundTransparency = 1
-Container.Parent = MainFrame
+local Status = Instance.new("TextLabel")
+Status.Size = UDim2.new(1, 0, 0, 25)
+Status.BackgroundTransparency = 1
+Status.Text = "● Status: OFF"
+Status.TextColor3 = Color3.fromRGB(255, 80, 80)
+Status.TextSize = 14
+Status.Font = Enum.Font.GothamMedium
+Status.TextXAlignment = Enum.TextXAlignment.Left
+Status.Parent = Content
 
-local FooterText = Instance.new("TextLabel")
-FooterText.Size = UDim2.new(1, 0, 0, 15)
-FooterText.Position = UDim2.new(0, 0, 1, -15)
-FooterText.BackgroundTransparency = 1
-FooterText.Text = "Aap gay he"
-FooterText.TextColor3 = Color3.fromRGB(150, 150, 150)
-FooterText.TextSize = 10
-FooterText.Font = Enum.Font.Gotham
-FooterText.Parent = MainFrame
+local Toggle = Instance.new("TextButton")
+Toggle.Position = UDim2.new(0, 0, 0, 32)
+Toggle.Size = UDim2.new(0.48, -5, 0, 35)
+Toggle.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+Toggle.Text = "START"
+Toggle.TextColor3 = Color3.new(1, 1, 1)
+Toggle.TextSize = 13
+Toggle.Font = Enum.Font.GothamBold
+Toggle.Parent = Content
 
-local isMinimized = false
-MinimizeBtn.MouseButton1Click:Connect(function()
-    isMinimized = not isMinimized
-    if isMinimized then
-        MinimizeBtn.Text = "+"
-        MainFrame.Size = UDim2.new(0, 240, 0, 32)
-        Container.Visible = false
-        FooterText.Visible = false
-    else
-        MinimizeBtn.Text = "-"
-        MainFrame.Size = UDim2.new(0, 240, 0, 440)
-        Container.Visible = true
-        FooterText.Visible = true
-    end
-end)
+Instance.new("UICorner", Toggle).CornerRadius = UDim.new(0, 8)
 
-CloseBtn.MouseButton1Click:Connect(function() ConfirmOverlay.Visible = true end)
-NoBtn.MouseButton1Click:Connect(function() ConfirmOverlay.Visible = false end)
+local ModeButton = Instance.new("TextButton")
+ModeButton.Position = UDim2.new(0.52, 0, 0, 32)
+ModeButton.Size = UDim2.new(0.48, 0, 0, 35)
+ModeButton.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+ModeButton.Text = "TWEEN"
+ModeButton.TextColor3 = Color3.new(1, 1, 1)
+ModeButton.TextSize = 13
+ModeButton.Font = Enum.Font.GothamBold
+ModeButton.Parent = Content
 
-local TargetLabel = Instance.new("TextLabel")
-TargetLabel.Size = UDim2.new(0.9, 0, 0, 20)
-TargetLabel.Position = UDim2.new(0.05, 0, 0, 0)
-TargetLabel.BackgroundTransparency = 1
-TargetLabel.Text = "Target: All Damageable"
-TargetLabel.TextColor3 = Color3.fromRGB(200, 170, 230)
-TargetLabel.TextSize = 12
-TargetLabel.Font = Enum.Font.Gotham
-TargetLabel.TextTruncate = Enum.TextTruncate.AtEnd
-TargetLabel.Parent = Container
+Instance.new("UICorner", ModeButton).CornerRadius = UDim.new(0, 8)
 
-local DropdownBtn = Instance.new("TextButton")
-DropdownBtn.Size = UDim2.new(0.65, 0, 0, 30)
-DropdownBtn.Position = UDim2.new(0.05, 0, 0, 24)
-DropdownBtn.BackgroundColor3 = Color3.fromRGB(60, 30, 90)
-DropdownBtn.Text = "Select Mobs (Multi)"
-DropdownBtn.TextColor3 = Color3.fromRGB(240, 240, 240)
-DropdownBtn.TextSize = 12
-DropdownBtn.Font = Enum.Font.GothamSemibold
-DropdownBtn.Parent = Container
-Instance.new("UICorner", DropdownBtn).CornerRadius = UDim.new(0, 6)
+local RaidButton = Instance.new("TextButton")
+RaidButton.Position = UDim2.new(0, 0, 0, 76)
+RaidButton.Size = UDim2.new(1, 0, 0, 35)
+RaidButton.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+RaidButton.Text = "AUTO RAID: OFF"
+RaidButton.TextColor3 = Color3.new(1, 1, 1)
+RaidButton.TextSize = 13
+RaidButton.Font = Enum.Font.GothamBold
+RaidButton.Parent = Content
 
-local RefreshBtn = Instance.new("TextButton")
-RefreshBtn.Size = UDim2.new(0.2, 0, 0, 30)
-RefreshBtn.Position = UDim2.new(0.725, 0, 0, 24)
-RefreshBtn.BackgroundColor3 = Color3.fromRGB(100, 50, 180)
-RefreshBtn.Text = "Refresh"
-RefreshBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-RefreshBtn.TextSize = 11
-RefreshBtn.Font = Enum.Font.GothamBold
-RefreshBtn.Parent = Container
-Instance.new("UICorner", RefreshBtn).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", RaidButton).CornerRadius = UDim.new(0, 8)
+
+local SpeedLabel = Instance.new("TextLabel")
+SpeedLabel.Position = UDim2.new(0, 0, 0, 120)
+SpeedLabel.Size = UDim2.new(0.45, 0, 0, 25)
+SpeedLabel.BackgroundTransparency = 1
+SpeedLabel.Text = "Tween Speed"
+SpeedLabel.TextColor3 = Color3.fromRGB(190, 190, 200)
+SpeedLabel.TextSize = 13
+SpeedLabel.Font = Enum.Font.GothamMedium
+SpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
+SpeedLabel.Parent = Content
 
 local SpeedBox = Instance.new("TextBox")
-SpeedBox.Size = UDim2.new(0.9, 0, 0, 30)
-SpeedBox.Position = UDim2.new(0.05, 0, 0, 60)
-SpeedBox.BackgroundColor3 = Color3.fromRGB(20, 10, 35)
-SpeedBox.Text = "Speed: " .. tostring(speed)
-SpeedBox.TextColor3 = Color3.fromRGB(220, 200, 255)
-SpeedBox.TextSize = 12
+SpeedBox.Position = UDim2.new(0.48, 0, 0, 117)
+SpeedBox.Size = UDim2.new(0.52, 0, 0, 32)
+SpeedBox.BackgroundColor3 = Color3.fromRGB(35, 35, 43)
+SpeedBox.Text = tostring(TweenSpeed)
+SpeedBox.TextColor3 = Color3.new(1, 1, 1)
+SpeedBox.TextSize = 13
 SpeedBox.Font = Enum.Font.Gotham
-SpeedBox.Parent = Container
-Instance.new("UICorner", SpeedBox).CornerRadius = UDim.new(0, 6)
+SpeedBox.ClearTextOnFocus = false
+SpeedBox.Parent = Content
 
-local HeightBox = Instance.new("TextBox")
-HeightBox.Size = UDim2.new(0.9, 0, 0, 30)
-HeightBox.Position = UDim2.new(0.05, 0, 0, 96)
-HeightBox.BackgroundColor3 = Color3.fromRGB(20, 10, 35)
-HeightBox.Text = "Fly Height: " .. tostring(flyHeight)
-HeightBox.TextColor3 = Color3.fromRGB(220, 200, 255)
-HeightBox.TextSize = 12
-HeightBox.Font = Enum.Font.Gotham
-HeightBox.Parent = Container
-Instance.new("UICorner", HeightBox).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", SpeedBox).CornerRadius = UDim.new(0, 7)
 
-local AtkMultBox = Instance.new("TextBox")
-AtkMultBox.Size = UDim2.new(0.9, 0, 0, 30)
-AtkMultBox.Position = UDim2.new(0.05, 0, 0, 132)
-AtkMultBox.BackgroundColor3 = Color3.fromRGB(35, 10, 50)
-AtkMultBox.Text = "Atk Multiplier: " .. tostring(attackMultiplier) .. "x"
-AtkMultBox.TextColor3 = Color3.fromRGB(255, 150, 255)
-AtkMultBox.TextSize = 12
-AtkMultBox.Font = Enum.Font.GothamBold
-AtkMultBox.Parent = Container
-Instance.new("UICorner", AtkMultBox).CornerRadius = UDim.new(0, 6)
+local Dragging = false
+local DragStart
+local StartPosition
 
-local ToggleButton = Instance.new("TextButton")
-ToggleButton.Size = UDim2.new(0.9, 0, 0, 36)
-ToggleButton.Position = UDim2.new(0.05, 0, 0, 172)
-ToggleButton.BackgroundColor3 = Color3.fromRGB(120, 30, 160)
-ToggleButton.Text = "Start Auto Farm"
-ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-ToggleButton.TextSize = 14
-ToggleButton.Font = Enum.Font.GothamBold
-ToggleButton.Parent = Container
-Instance.new("UICorner", ToggleButton).CornerRadius = UDim.new(0, 8)
+TopBar.InputBegan:Connect(function(Input)
 
-local NotifierBtn = Instance.new("TextButton")
-NotifierBtn.Size = UDim2.new(0.9, 0, 0, 30)
-NotifierBtn.Position = UDim2.new(0.05, 0, 0, 214)
-NotifierBtn.BackgroundColor3 = Color3.fromRGB(45, 25, 70)
-NotifierBtn.Text = "Fruit Notifier: OFF"
-NotifierBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-NotifierBtn.TextSize = 13
-NotifierBtn.Font = Enum.Font.GothamBold
-NotifierBtn.Parent = Container
-Instance.new("UICorner", NotifierBtn).CornerRadius = UDim.new(0, 6)
+    if Input.UserInputType == Enum.UserInputType.MouseButton1
+        or Input.UserInputType == Enum.UserInputType.Touch then
 
-local StatusLabel = Instance.new("TextLabel")
-StatusLabel.Size = UDim2.new(0.9, 0, 0, 42)
-StatusLabel.Position = UDim2.new(0.05, 0, 0, 250)
-StatusLabel.BackgroundColor3 = Color3.fromRGB(35, 15, 55)
-StatusLabel.TextColor3 = Color3.fromRGB(200, 170, 240)
-StatusLabel.TextSize = 11
-StatusLabel.TextWrapped = true
-StatusLabel.Text = "Status: Disabled"
-StatusLabel.Font = Enum.Font.Gotham
-StatusLabel.Parent = Container
-Instance.new("UICorner", StatusLabel).CornerRadius = UDim.new(0, 6)
+        Dragging = true
+        DragStart = Input.Position
+        StartPosition = Main.Position
 
-local TPBtn = Instance.new("TextButton")
-TPBtn.Size = UDim2.new(0.9, 0, 0, 32)
-TPBtn.Position = UDim2.new(0.05, 0, 0, 300)
-TPBtn.BackgroundColor3 = Color3.fromRGB(90, 20, 150)
-TPBtn.Text = "TP to Spawned Fruit"
-TPBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-TPBtn.TextSize = 13
-TPBtn.Font = Enum.Font.GothamBold
-TPBtn.Parent = Container
-Instance.new("UICorner", TPBtn).CornerRadius = UDim.new(0, 6)
+        Input.Changed:Connect(function()
 
--- Auto Raid toggle
-local AutoRaidBtn = Instance.new("TextButton")
-AutoRaidBtn.Size = UDim2.new(0.9, 0, 0, 32)
-AutoRaidBtn.Position = UDim2.new(0.05, 0, 0, 338)
-AutoRaidBtn.BackgroundColor3 = Color3.fromRGB(45, 25, 70)
-AutoRaidBtn.Text = "Auto Raid: OFF"
-AutoRaidBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-AutoRaidBtn.TextSize = 13
-AutoRaidBtn.Font = Enum.Font.GothamBold
-AutoRaidBtn.Parent = Container
-Instance.new("UICorner", AutoRaidBtn).CornerRadius = UDim.new(0, 6)
-
-local MobScrollFrame = Instance.new("ScrollingFrame")
-MobScrollFrame.Size = UDim2.new(0.9, 0, 0, 140)
-MobScrollFrame.Position = UDim2.new(0.05, 0, 0, 58)
-MobScrollFrame.BackgroundColor3 = Color3.fromRGB(20, 10, 30)
-MobScrollFrame.BorderSizePixel = 0
-MobScrollFrame.ScrollBarThickness = 4
-MobScrollFrame.Visible = false
-MobScrollFrame.ZIndex = 10
-MobScrollFrame.Parent = Container
-Instance.new("UICorner", MobScrollFrame).CornerRadius = UDim.new(0, 6)
-
-local UIListLayout = Instance.new("UIListLayout")
-UIListLayout.Parent = MobScrollFrame
-UIListLayout.Padding = UDim.new(0, 3)
-UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-
-local function GetAvailableMobs()
-    local mobs = {}
-    local hash = {}
-    for _, obj in ipairs(getPotentialNPCs()) do
-        if IsDamageableNPC(obj) then
-            if not hash[obj.Name] then
-                hash[obj.Name] = true
-                table.insert(mobs, obj.Name)
-            end
-        end
-    end
-    table.sort(mobs)
-    return mobs
-end
-
-local function updateTargetLabel()
-    local names = {}
-    for k, v in pairs(targetMobs) do 
-        if v then table.insert(names, k) end 
-    end
-    if #names > 0 then
-        TargetLabel.Text = "Target: " .. table.concat(names, ", ")
-    else
-        TargetLabel.Text = "Target: All Damageable"
-    end
-end
-
-local function populateDropdown()
-    for _, child in ipairs(MobScrollFrame:GetChildren()) do
-        if child:IsA("TextButton") then child:Destroy() end
-    end
-    
-    local mobs = GetAvailableMobs()
-    local function createBtn(text, tName, order)
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(1, -6, 0, 26)
-        btn.BackgroundColor3 = (targetMobs[tName] or (tName == "" and next(targetMobs) == nil)) and Color3.fromRGB(130, 40, 220) or Color3.fromRGB(40, 20, 60)
-        btn.Text = text
-        btn.TextColor3 = Color3.fromRGB(230, 230, 230)
-        btn.TextSize = 12
-        btn.Font = Enum.Font.Gotham
-        btn.LayoutOrder = order
-        btn.ZIndex = 11
-        btn.Parent = MobScrollFrame
-        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
-        
-        btn.MouseButton1Click:Connect(function()
-            if tName == "" then
-                targetMobs = {}
-                for _, b in ipairs(MobScrollFrame:GetChildren()) do
-                    if b:IsA("TextButton") then b.BackgroundColor3 = Color3.fromRGB(40, 20, 60) end
-                end
-                btn.BackgroundColor3 = Color3.fromRGB(130, 40, 220)
-            else
-                targetMobs[tName] = not targetMobs[tName]
-                btn.BackgroundColor3 = targetMobs[tName] and Color3.fromRGB(130, 40, 220) or Color3.fromRGB(40, 20, 60)
-                
-                for _, b in ipairs(MobScrollFrame:GetChildren()) do
-                    if b:IsA("TextButton") and b.Text == "All Damageable" then
-                        b.BackgroundColor3 = Color3.fromRGB(40, 20, 60)
-                    end
-                end
-            end
-            updateTargetLabel()
-        end)
-    end
-
-    createBtn("All Damageable", "", 0)
-    for i, mobName in ipairs(mobs) do
-        createBtn(mobName, mobName, i)
-    end
-    MobScrollFrame.CanvasSize = UDim2.new(0, 0, 0, (#mobs + 1) * 29)
-end
-
-DropdownBtn.MouseButton1Click:Connect(function()
-    populateDropdown()
-    MobScrollFrame.Visible = not MobScrollFrame.Visible
-end)
-RefreshBtn.MouseButton1Click:Connect(populateDropdown)
-
-SpeedBox.FocusLost:Connect(function()
-    local num = tonumber(SpeedBox.Text:match("%d+"))
-    if num and num > 0 then speed = num end
-    SpeedBox.Text = "Speed: " .. tostring(speed)
-end)
-
-HeightBox.FocusLost:Connect(function()
-    local num = tonumber(HeightBox.Text:match("%d+"))
-    if num and num >= 0 then flyHeight = num end
-    HeightBox.Text = "Fly Height: " .. tostring(flyHeight)
-end)
-
-AtkMultBox.FocusLost:Connect(function()
-    local num = tonumber(AtkMultBox.Text:match("%d+"))
-    if num and num > 0 then attackMultiplier = math.clamp(num, 1, 100) end
-    AtkMultBox.Text = "Atk Multiplier: " .. tostring(attackMultiplier) .. "x"
-end)
-
-populateDropdown()
------------------------------------
--- FRUIT NOTIFIER & TP LOGIC
------------------------------------
-local function getFruitName(fruit)
-    local fruitName = "Unknown Fruit"
-    for _, descendant in ipairs(fruit:GetChildren()) do
-        if descendant:IsA("MeshPart") and string.sub(descendant.Name, 1, 7) == "Meshes/" then
-            local i = string.find(descendant.Name, '_')
-            fruitName = i and string.sub(descendant.Name, 8, i - 1) or string.sub(descendant.Name, 8)
-            local lowerName = string.lower(fruitName)
-            if lowerName == "magu" then fruitName = "Magma"
-            elseif lowerName == "smouke" then fruitName = "Smoke"
-            elseif lowerName == "quaketest" then fruitName = "Quake"
-            end
-            fruitName = fruitName:gsub("^%l", string.upper) .. " Fruit"
-            fruitName = fruitName:gsub("%d+", '')
-            break
-        end
-    end
-    if fruitName == "Unknown Fruit" then fruitName = fruit.Name end
-    return fruitName
-end
-
-local function scanForFruits()
-    CurrentFruit = nil
-    for _, child in ipairs(Workspace:GetChildren()) do
-        if string.find(child.Name, "Fruit") or child.Name == "Fruit " then
-            local handle = child:FindFirstChild("Handle") or child:FindFirstChildOfClass("Part") or child:FindFirstChildOfClass("MeshPart")
-            if handle then
-                CurrentFruit = child
-                break
-            end
-        end
-    end
-end
-
-local function trackFruit(fruit)
-    CurrentFruit = fruit
-    local handle = fruit:WaitForChild("Handle", 5) or fruit:FindFirstChildOfClass("Part") or fruit:FindFirstChildOfClass("MeshPart")
-    if not handle then return end
-    
-    local name = getFruitName(fruit)
-    task.spawn(function()
-        while scriptRunning and NotifierEnabled and fruit and fruit.Parent == Workspace do
-            if Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
-                local pos = handle.Position
-                local dist = math.floor((Player.Character.HumanoidRootPart.Position - pos).Magnitude * 0.15)
-                StatusLabel.Text = string.format("%s Detected!\nDist: %dm away", name, dist)
-            end
-            task.wait(0.3)
-        end
-        if scriptRunning and NotifierEnabled then
-            scanForFruits()
-            if not CurrentFruit then
-                StatusLabel.Text = "Status: No fruit currently spawned"
-            end
-        end
-    end)
-end
-
-NotifierBtn.MouseButton1Click:Connect(function()
-    NotifierEnabled = not NotifierEnabled
-    if NotifierEnabled then
-        NotifierBtn.Text = "Fruit Notifier: ON"
-        NotifierBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 255)
-        StatusLabel.Text = "Status: Searching for fruits..."
-        
-        WorkspaceConnection = Workspace.ChildAdded:Connect(function(child)
-            if string.find(child.Name, "Fruit") or child.Name == "Fruit " then
-                trackFruit(child)
-            end
-        end)
-        
-        scanForFruits()
-        if CurrentFruit then trackFruit(CurrentFruit) else StatusLabel.Text = "Status: No fruit currently spawned" end
-    else
-        NotifierBtn.Text = "Fruit Notifier: OFF"
-        NotifierBtn.BackgroundColor3 = Color3.fromRGB(45, 25, 70)
-        StatusLabel.Text = "Status: Disabled"
-        if WorkspaceConnection then WorkspaceConnection:Disconnect() WorkspaceConnection = nil end
-        CurrentFruit = nil
-    end
-end)
-
------------------------------------
--- OPTIMIZED FAST ATTACK (BUG & LAG FREE)
------------------------------------
-_G.FastAttack = true
-if _G.FastAttack then
-    local _ENV = (getgenv or getrenv or getfenv)()
-    local function SafeWaitForChild(parent, childName)
-        local success, result = pcall(function() return parent:WaitForChild(childName) end)
-        return result
-    end
-    local Remotes = SafeWaitForChild(ReplicatedStorage, "Remotes")
-    local Modules = SafeWaitForChild(ReplicatedStorage, "Modules")
-    local Net = SafeWaitForChild(Modules, "Net")
-
-    local Settings = { AutoClick = true, ClickDelay = 0.0000000000001 }
-    local Module = {}
-
-    Module.FastAttack = (function()
-        if _ENV.rz_FastAttack then return _ENV.rz_FastAttack end
-        local FastAttack = { Distance = 60, attackMobs = true, attackPlayers = true, Equipped = nil }
-        local RegisterAttack = SafeWaitForChild(Net, "RE/RegisterAttack")
-        local RegisterHit = SafeWaitForChild(Net, "RE/RegisterHit")
-
-        local function IsAlive(character)
-            return character and character:FindFirstChild("Humanoid") and character.Humanoid.Health > 0
-        end
-
-        function FastAttack:Attack(BasePart, OthersEnemies)
-            if not BasePart or #OthersEnemies == 0 then return end
-            for i = 1, attackMultiplier do
-                task.spawn(function()
-                    if RegisterAttack then RegisterAttack:FireServer(Settings.ClickDelay or 0) end
-                    if RegisterHit then RegisterHit:FireServer(BasePart, OthersEnemies) end
-                end)
-            end
-        end
-
-        function FastAttack:AttackNearest()
-            local OthersEnemies = {}
-            local BasePart = nil
-            local char = Player.Character
-            if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-            
-            -- Only iterate optimized list, never full Descendants to prevent lag
-            for _, model in ipairs(getPotentialNPCs()) do
-                if IsDamageableNPC(model) then
-                    if next(targetMobs) == nil or targetMobs[model.Name] then
-                        local Head = model:FindFirstChild("Head")
-                        if Head and Player:DistanceFromCharacter(Head.Position) < FastAttack.Distance then
-                            table.insert(OthersEnemies, { model, Head })
-                            if not BasePart then BasePart = Head end
-                        end
-                    end
-                end
+            if Input.UserInputState == Enum.UserInputState.End then
+                Dragging = false
             end
 
-            local equippedWeapon = char:FindFirstChildOfClass("Tool")
-            if equippedWeapon and equippedWeapon:FindFirstChild("LeftClickRemote") then
-                for _, enemyData in ipairs(OthersEnemies) do
-                    local enemy = enemyData[1]
-                    local hrp = enemy:FindFirstChild("HumanoidRootPart")
-                    if hrp then
-                        local direction = (hrp.Position - char:GetPivot().Position).Unit
-                        for i = 1, attackMultiplier do
-                            task.spawn(function()
-                                pcall(function() equippedWeapon.LeftClickRemote:FireServer(direction, 1) end)
-                            end)
-                        end
-                    end
-                end
-            elseif #OthersEnemies > 0 then
-                self:Attack(BasePart, OthersEnemies)
-            end
-        end
-
-        function FastAttack:BladeHits()
-            local Equipped = IsAlive(Player.Character) and Player.Character:FindFirstChildOfClass("Tool")
-            if Equipped and Equipped.ToolTip ~= "Gun" then
-                self:AttackNearest()
-            end
-        end
-
-        task.spawn(function()
-            while scriptRunning and task.wait(Settings.ClickDelay) do
-                if active and Settings.AutoClick then
-                    FastAttack:BladeHits()
-                end
-            end
         end)
 
-        _ENV.rz_FastAttack = FastAttack
-        return FastAttack
-    end)()
-end
-
-local remote, idremote
-pcall(function()
-    for _, v in next, ({ReplicatedStorage:FindFirstChild("Util"), ReplicatedStorage:FindFirstChild("Common"), ReplicatedStorage:FindFirstChild("Remotes"), ReplicatedStorage:FindFirstChild("Assets"), ReplicatedStorage:FindFirstChild("FX")}) do
-        if v then
-            for _, n in next, v:GetChildren() do
-                if n:IsA("RemoteEvent") and n:GetAttribute("Id") then
-                    remote, idremote = n, n:GetAttribute("Id")
-                end
-            end
-            v.ChildAdded:Connect(function(n)
-                if n:IsA("RemoteEvent") and n:GetAttribute("Id") then
-                    remote, idremote = n, n:GetAttribute("Id")
-                end
-            end)
-        end
     end
+
 end)
 
--- Optimized Melee Loop to prevent freezing
-task.spawn(function()
-    while scriptRunning and task.wait(0.1) do
-        if not active then continue end 
-        local char = Player.Character
-        local root = char and char:FindFirstChild("HumanoidRootPart")
-        if not root then continue end
-        
-        local parts = {}
-        for _, model in ipairs(getPotentialNPCs()) do
-            if IsDamageableNPC(model) then
-                if next(targetMobs) == nil or targetMobs[model.Name] then
-                    local hrp = model:FindFirstChild("HumanoidRootPart")
-                    if hrp and (hrp.Position - root.Position).Magnitude <= 65 then
-                        for _, _v in ipairs(model:GetChildren()) do
-                            if _v:IsA("BasePart") then
-                                parts[#parts+1] = {model, _v}
-                            end
-                        end
-                    end
-                end
-            end
-        end
+UserInputService.InputChanged:Connect(function(Input)
 
-        local tool = char:FindFirstChildOfClass("Tool")
-        if #parts > 0 and tool and (tool:GetAttribute("WeaponType") == "Melee" or tool:GetAttribute("WeaponType") == "Sword") then
-            for i = 1, attackMultiplier do
-                task.spawn(function()
-                    pcall(function()
-                        require(ReplicatedStorage.Modules.Net):RemoteEvent("RegisterHit", true)
-                        ReplicatedStorage.Modules.Net["RE/RegisterAttack"]:FireServer()
-                        local head = parts[1][1]:FindFirstChild("Head")
-                        if not head then return end
-                        ReplicatedStorage.Modules.Net["RE/RegisterHit"]:FireServer(head, parts, {}, tostring(Player.UserId):sub(2, 4) .. tostring(coroutine.running()):sub(11, 15))
-                        if remote and idremote then
-                            cloneref(remote):FireServer(string.gsub("RE/RegisterHit", ".", function(c)
-                                return string.char(bit32.bxor(string.byte(c), math.floor(Workspace:GetServerTimeNow() / 10 % 10) + 1))
-                            end),
-                            bit32.bxor(idremote + 909090, ReplicatedStorage.Modules.Net.seed:InvokeServer() * 2), head, parts)
-                        end
-                    end)
-                end)
-            end
-        end
-    end
-end)
-
------------------------------------
--- NEAREST NPC MOVEMENT & SUSPENSION
------------------------------------
-local function applySuspension(hrp)
-    local bv = hrp:FindFirstChild("AutoFarmVelocity")
-    if not bv then
-        bv = Instance.new("BodyVelocity")
-        bv.Name = "AutoFarmVelocity"
-        bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-        bv.Velocity = Vector3.new(0, 0, 0)
-        bv.Parent = hrp
-    end
-end
-
-local function removeSuspension()
-    local char = Player.Character
-    if char and char:FindFirstChild("HumanoidRootPart") then
-        local bv = char.HumanoidRootPart:FindFirstChild("AutoFarmVelocity")
-        if bv then bv:Destroy() end
-    end
-end
-
-local function getNearestNPC()
-    local char = Player.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return nil, nil end
-
-    local hrp = char.HumanoidRootPart
-    local nearestHrp = nil
-    local nearestHumanoid = nil
-    local shortestDist = math.huge
-
-    for _, model in ipairs(getPotentialNPCs()) do
-        if IsDamageableNPC(model) then
-            if next(targetMobs) == nil or targetMobs[model.Name] then
-                local targetHrp = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("PrimaryPart")
-                local hum = model:FindFirstChildOfClass("Humanoid")
-                if targetHrp and hum then
-                    local dist = (hrp.Position - targetHrp.Position).Magnitude
-                    if dist < shortestDist then
-                        shortestDist = dist
-                        nearestHrp = targetHrp
-                        nearestHumanoid = hum
-                    end
-                end
-            end
-        end
-    end
-    return nearestHrp, nearestHumanoid
-end
-
-local function tweenToPosition(targetCFrame)
-    local char = Player.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return false end
-    local hrp = char.HumanoidRootPart
-
-    local distance = (hrp.Position - targetCFrame.Position).Magnitude
-    local duration = math.max(distance / math.max(speed, 1), 0.01)
-
-    applySuspension(hrp)
-
-    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear)
-    activeTween = TweenService:Create(hrp, tweenInfo, {CFrame = targetCFrame})
-    activeTween:Play()
-
-    local isDone = false
-    local connection
-    connection = activeTween.Completed:Connect(function()
-        isDone = true
-        if connection then connection:Disconnect() end
-    end)
-
-    while not isDone and active and scriptRunning do
-        task.wait()
-        if not char or not char:FindFirstChild("HumanoidRootPart") then
-            if activeTween then activeTween:Cancel() end
-            return false
-        end
-    end
-    return active
-end
-
---==================================================
--- NIGHTHUB-STYLE AUTO RAID
--- Uses the existing movement/attack system from this script.
--- Normal farming pauses while an active raid is being handled.
---==================================================
-
-local function isRaidActive()
-    local playerGui = Player:FindFirstChild("PlayerGui")
-    local main = playerGui and playerGui:FindFirstChild("Main")
-    local topHUD = main and main:FindFirstChild("TopHUDList")
-    local raidTimer = topHUD and topHUD:FindFirstChild("RaidTimer")
-    return raidTimer ~= nil and raidTimer.Visible == true
-end
-
-local function getRaidIsland()
-    local char = Player.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    local worldOrigin = Workspace:FindFirstChild("_WorldOrigin")
-    local locations = worldOrigin and worldOrigin:FindFirstChild("Locations")
-    if not hrp or not locations then return nil end
-
-    for i = 5, 1, -1 do
-        for _, location in ipairs(locations:GetChildren()) do
-            if location.Name == "Island " .. tostring(i) and location:IsA("BasePart") then
-                if (location.Position - hrp.Position).Magnitude <= 3000 then
-                    return location
-                end
-            end
-        end
-    end
-    return nil
-end
-
-local function getNearestRaidMob()
-    local char = Player.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    local enemies = Workspace:FindFirstChild("Enemies")
-    if not hrp or not enemies then return nil end
-
-    local nearest = nil
-    local shortest = math.huge
-
-    for _, mob in ipairs(enemies:GetChildren()) do
-        if mob:IsA("Model") and mob ~= char then
-            local hum = mob:FindFirstChildOfClass("Humanoid")
-            local mobRoot = mob:FindFirstChild("HumanoidRootPart")
-            if hum and mobRoot and hum.Health > 0 then
-                local distance = (mobRoot.Position - hrp.Position).Magnitude
-                if distance <= 1000 and distance < shortest then
-                    shortest = distance
-                    nearest = mob
-                end
-            end
-        end
-    end
-
-    return nearest
-end
-
-local function raidAttack(mob)
-    if not mob or not mob.Parent then return end
-    local head = mob:FindFirstChild("Head") or mob:FindFirstChild("HumanoidRootPart")
-    local root = mob:FindFirstChild("HumanoidRootPart")
-    local hum = mob:FindFirstChildOfClass("Humanoid")
-    local char = Player.Character
-    if not head or not root or not hum or hum.Health <= 0 or not char then return end
-
-    local playerRoot = char:FindFirstChild("HumanoidRootPart")
-    if not playerRoot then return end
-
-    -- Keep the same attack distance/mechanism already present in this script.
-    if (playerRoot.Position - root.Position).Magnitude > 70 then
+    if not Dragging then
         return
     end
 
-    local parts = {}
-    for _, part in ipairs(mob:GetChildren()) do
-        if part:IsA("BasePart") then
-            parts[#parts + 1] = {mob, part}
-        end
+    if Input.UserInputType == Enum.UserInputType.MouseMovement
+        or Input.UserInputType == Enum.UserInputType.Touch then
+
+        local Delta = Input.Position - DragStart
+
+        Main.Position = UDim2.new(
+            StartPosition.X.Scale,
+            StartPosition.X.Offset + Delta.X,
+            StartPosition.Y.Scale,
+            StartPosition.Y.Offset + Delta.Y
+        )
+
     end
 
-    for _ = 1, attackMultiplier do
-        pcall(function()
-            require(ReplicatedStorage.Modules.Net):RemoteEvent("RegisterHit", true)
-            ReplicatedStorage.Modules.Net["RE/RegisterAttack"]:FireServer()
-            ReplicatedStorage.Modules.Net["RE/RegisterHit"]:FireServer(
-                head,
-                parts,
-                {},
-                tostring(Player.UserId):sub(2, 4) .. tostring(coroutine.running()):sub(11, 15)
-            )
-        end)
-    end
+end)
+
+local function GetCharacter()
+
+    return Player.Character or Player.CharacterAdded:Wait()
+
 end
 
-local function runAutoRaid()
-    if not AutoRaid or not active or not isRaidActive() then return end
+local function GetRoot()
+
+    local Character = Player.Character
+
+    if not Character then
+        return nil
+    end
+
+    return Character:FindFirstChild("HumanoidRootPart")
+
+end
+
+local function StopMovement()
+
+    RaidToken += 1
+    RaidBusy = false
+
+    if CurrentTween then
+
+        pcall(function()
+            CurrentTween:Cancel()
+        end)
+
+        CurrentTween = nil
+
+    end
+
+    local Character = Player.Character
+
+    if Character then
+
+        local Proxy = Character:FindFirstChild("ChestFarmProxy")
+
+        if Proxy then
+            Proxy:Destroy()
+        end
+
+    end
+
+end
+--// Part 2/3
+
+local function GetChest()
+
+    local Root = GetRoot()
+
+    if not Root then
+        return nil
+    end
+
+    local Closest = nil
+    local ClosestDistance = math.huge
+
+    for _, Chest in ipairs(
+        CollectionService:GetTagged("_ChestTagged")
+    ) do
+
+        if Chest
+            and Chest.Parent
+            and not Chest:GetAttribute("IsDisabled") then
+
+            local Success, Pivot =
+                pcall(function()
+                    return Chest:GetPivot()
+                end)
+
+            if Success and Pivot then
+
+                local Distance =
+                    (Pivot.Position - Root.Position).Magnitude
+
+                if Distance < ClosestDistance then
+
+                    ClosestDistance = Distance
+                    Closest = Chest
+
+                end
+
+            end
+
+        end
+
+    end
+
+    return Closest
+
+end
+
+local function IsRaidActive()
+
+    local PlayerGui =
+        Player:FindFirstChild("PlayerGui")
+
+    if not PlayerGui then
+        return false
+    end
+
+    local MainGui =
+        PlayerGui:FindFirstChild("Main")
+
+    if not MainGui then
+        return false
+    end
+
+    local TopHUDList =
+        MainGui:FindFirstChild("TopHUDList")
+
+    if not TopHUDList then
+        return false
+    end
+
+    local RaidTimer =
+        TopHUDList:FindFirstChild("RaidTimer")
+
+    return RaidTimer ~= nil
+        and RaidTimer.Visible == true
+
+end
+
+local function GetRaidIsland()
+
+    local Root = GetRoot()
+
+    if not Root then
+        return nil
+    end
+
+    local WorldOrigin =
+        Workspace:FindFirstChild("_WorldOrigin")
+
+    if not WorldOrigin then
+        return nil
+    end
+
+    local Locations =
+        WorldOrigin:FindFirstChild("Locations")
+
+    if not Locations then
+        return nil
+    end
+
+    for Index = 5, 1, -1 do
+
+        local Island =
+            Locations:FindFirstChild(
+                "Island " .. Index
+            )
+
+        if Island then
+
+            local Success, Position =
+                pcall(function()
+
+                    return Island:GetPivot().Position
+
+                end)
+
+            if Success and Position then
+
+                if (
+                    Position - Root.Position
+                ).Magnitude <= 3000 then
+
+                    return Island
+
+                end
+
+            end
+
+        end
+
+    end
+
+    return nil
+
+end
+
+local function GetRaidTarget()
+
+    local Root = GetRoot()
+
+    if not Root then
+        return nil
+    end
+
+    local Enemies =
+        Workspace:FindFirstChild("Enemies")
+
+    if not Enemies then
+        return nil
+    end
+
+    local Closest = nil
+    local ClosestDistance = math.huge
+
+    for _, Enemy in ipairs(
+        Enemies:GetChildren()
+    ) do
+
+        if Enemy and Enemy.Parent then
+
+            local Humanoid =
+                Enemy:FindFirstChildOfClass(
+                    "Humanoid"
+                )
+
+            local EnemyRoot =
+                Enemy:FindFirstChild(
+                    "HumanoidRootPart"
+                )
+                or Enemy.PrimaryPart
+
+            if Humanoid
+                and EnemyRoot
+                and Humanoid.Health > 0 then
+
+                local Distance =
+                    (
+                        EnemyRoot.Position -
+                        Root.Position
+                    ).Magnitude
+
+                if Distance <= 1000
+                    and Distance < ClosestDistance then
+
+                    ClosestDistance = Distance
+                    Closest = Enemy
+
+                end
+
+            end
+
+        end
+
+    end
+
+    return Closest
+
+end
+
+local function SmoothMove(TargetCFrame)
+
+    if not Enabled then
+        return false
+    end
+
+    local Character = GetCharacter()
+    local Root = GetRoot()
+
+    if not Character or not Root then
+        return false
+    end
+
+    if not TargetCFrame then
+        return false
+    end
+
+    StopMovement()
+
+    local MyToken = RaidToken
+
+    local Distance =
+        (
+            TargetCFrame.Position -
+            Root.Position
+        ).Magnitude
+
+    if Distance <= 8 then
+
+        Character:PivotTo(TargetCFrame)
+
+        return true
+
+    end
+
+    local Proxy = Instance.new("Part")
+
+    Proxy.Name = "ChestFarmProxy"
+    Proxy.Size = Vector3.new(2, 1, 2)
+    Proxy.Transparency = 1
+    Proxy.Anchored = true
+    Proxy.CanCollide = false
+    Proxy.CanTouch = false
+    Proxy.CanQuery = false
+    Proxy.CFrame = Root.CFrame
+    Proxy.Parent = Character
+
+    local Duration =
+        math.clamp(
+            Distance / math.max(TweenSpeed, 1),
+            0.15,
+            8
+        )
+
+    CurrentTween =
+        TweenService:Create(
+            Proxy,
+            TweenInfo.new(
+                Duration,
+                Enum.EasingStyle.Linear,
+                Enum.EasingDirection.Out
+            ),
+            {
+                CFrame = TargetCFrame
+            }
+        )
+
+    CurrentTween:Play()
+
+    local Finished = false
+
+    local Connection =
+        CurrentTween.Completed:Connect(
+            function()
+                Finished = true
+            end
+        )
+
+    while Enabled
+        and MyToken == RaidToken
+        and not Finished do
+
+        Character = Player.Character
+
+        if not Character then
+            break
+        end
+
+        Root =
+            Character:FindFirstChild(
+                "HumanoidRootPart"
+            )
+
+        if not Root then
+            break
+        end
+
+        if Proxy.Parent then
+
+            Character:PivotTo(
+                Proxy.CFrame
+            )
+
+        else
+
+            break
+
+        end
+
+        task.wait()
+
+    end
+
+    if Connection then
+        Connection:Disconnect()
+    end
+
+    if CurrentTween then
+
+        pcall(function()
+            CurrentTween:Cancel()
+        end)
+
+        CurrentTween = nil
+
+    end
+
+    if Proxy.Parent then
+        Proxy:Destroy()
+    end
+
+    return Finished
+        and Enabled
+        and MyToken == RaidToken
+
+end
+
+local function TeleportMove(TargetCFrame)
+
+    if not Enabled then
+        return false
+    end
+
+    local Character =
+        Player.Character
+
+    if not Character then
+        return false
+    end
+
+    StopMovement()
+
+    Character:PivotTo(TargetCFrame)
+
+    task.wait(0.1)
+
+    return true
+
+end
+
+local function AttackRaidTarget(Enemy)
+
+    if not Enemy
+        or not Enemy.Parent then
+
+        return false
+
+    end
+
+    local Humanoid =
+        Enemy:FindFirstChildOfClass(
+            "Humanoid"
+        )
+
+    local EnemyRoot =
+        Enemy:FindFirstChild(
+            "HumanoidRootPart"
+        )
+        or Enemy.PrimaryPart
+
+    if not Humanoid
+        or not EnemyRoot
+        or Humanoid.Health <= 0 then
+
+        return false
+
+    end
+
+    local TargetCFrame =
+        EnemyRoot.CFrame *
+        CFrame.new(0, 6, 0)
+
+    if Mode == "Tween" then
+
+        SmoothMove(TargetCFrame)
+
+    else
+
+        TeleportMove(TargetCFrame)
+
+    end
+
+    local StartTime = os.clock()
+
+    while Enabled
+        and AutoRaid
+        and IsRaidActive()
+        and Enemy.Parent
+        and Humanoid.Health > 0 do
+
+        local CurrentRoot =
+            GetRoot()
+
+        if not CurrentRoot then
+            break
+        end
+
+        local Distance =
+            (
+                EnemyRoot.Position -
+                CurrentRoot.Position
+            ).Magnitude
+
+        if Distance > 18 then
+
+            local NewCFrame =
+                EnemyRoot.CFrame *
+                CFrame.new(0, 6, 0)
+
+            if Mode == "Tween" then
+
+                SmoothMove(NewCFrame)
+
+            else
+
+                TeleportMove(NewCFrame)
+
+            end
+
+        end
+
+        if os.clock() - StartTime > 25 then
+            break
+        end
+
+        task.wait(0.12)
+
+    end
+
+    return true
+
+end
+--// Part 3/3
+
+local function RunAutoRaid()
+
+    if not AutoRaid
+        or not Enabled
+        or not IsRaidActive() then
+
+        return
+
+    end
 
     RaidBusy = true
-    local mob = getNearestRaidMob()
+    RaidToken += 1
 
-    if mob then
-        local mobRoot = mob:FindFirstChild("HumanoidRootPart")
-        local hum = mob:FindFirstChildOfClass("Humanoid")
-        if mobRoot and hum and hum.Health > 0 then
-            local targetCFrame = mobRoot.CFrame * CFrame.new(0, flyHeight, 0)
-            if tweenToPosition(targetCFrame) then
-                local char = Player.Character
-                local root = char and char:FindFirstChild("HumanoidRootPart")
-                if root then applySuspension(root) end
+    while Enabled
+        and AutoRaid
+        and IsRaidActive() do
 
-                while AutoRaid and active and scriptRunning and isRaidActive() and mob.Parent and hum.Health > 0 do
-                    char = Player.Character
-                    root = char and char:FindFirstChild("HumanoidRootPart")
-                    if not root then break end
-                    root.CFrame = mobRoot.CFrame * CFrame.new(0, flyHeight, 0)
-                    raidAttack(mob)
-                    task.wait(0.05)
-                end
-            end
-        end
-    else
-        local island = getRaidIsland()
-        if island then
-            tweenToPosition(island.CFrame * CFrame.new(0, 67, 0))
+        local Enemy =
+            GetRaidTarget()
+
+        if Enemy then
+
+            AttackRaidTarget(Enemy)
+
         else
-            task.wait(0.25)
-        end
-    end
 
-    RaidBusy = false
-end
+            local Island =
+                GetRaidIsland()
 
--- Auto Raid worker
-task.spawn(function()
-    while scriptRunning do
-        if AutoRaid and active and isRaidActive() then
-            pcall(runAutoRaid)
-            task.wait(0.05)
-        else
-            task.wait(0.2)
-        end
-    end
-end)
+            if Island then
 
-local function startLoop()
-    task.spawn(function()
-        while active and scriptRunning do
-            if AutoRaid and isRaidActive() then
-                task.wait(0.1)
-                continue
-            end
-            local targetHrp, targetHumanoid = getNearestNPC()
-            if targetHrp and targetHumanoid then
-                local overheadCFrame = targetHrp.CFrame * CFrame.new(0, flyHeight, 0)
-                local arrived = tweenToPosition(overheadCFrame)
-                
-                if arrived and active and scriptRunning then
-                    local char = Player.Character
-                    if char and char:FindFirstChild("HumanoidRootPart") then
-                        local hrp = char.HumanoidRootPart
-                        applySuspension(hrp)
-                        while active and scriptRunning and targetHumanoid and targetHumanoid.Health > 0 and targetHrp and targetHrp.Parent do
-                            hrp.CFrame = targetHrp.CFrame * CFrame.new(0, flyHeight, 0)
-                            task.wait()
-                        end
+                local Success,
+                    IslandCFrame =
+                    pcall(function()
+
+                        return Island:GetPivot()
+
+                    end)
+
+                if Success and IslandCFrame then
+
+                    local Target =
+                        IslandCFrame *
+                        CFrame.new(0, 67, 0)
+
+                    if Mode == "Tween" then
+
+                        SmoothMove(Target)
+
+                    else
+
+                        TeleportMove(Target)
+
                     end
+
                 end
-            else
-                removeSuspension()
-                task.wait(0.2)
+
             end
+
+            task.wait(0.2)
+
         end
-        removeSuspension()
-    end)
-end
 
------------------------------------
--- TOGGLES, BINDINGS & CLOSE EVENT
------------------------------------
-local function pressJ()
-    pcall(function()
-        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.J, false, game)
-        task.wait(0.05)
-        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.J, false, game)
-    end)
-end
-
-local function toggleScript()
-    active = not active
-    pressJ()
-
-    if active then
-        ToggleButton.Text = "Stop Auto Farm"
-        ToggleButton.BackgroundColor3 = Color3.fromRGB(150, 50, 255)
-        startLoop()
-    else
-        ToggleButton.Text = "Start Auto Farm"
-        ToggleButton.BackgroundColor3 = Color3.fromRGB(120, 30, 160)
-        
-        if activeTween then
-            activeTween:Cancel()
-            activeTween = nil
-        end
-        removeSuspension()
     end
-end
-ToggleButton.MouseButton1Click:Connect(toggleScript)
 
-AutoRaidBtn.MouseButton1Click:Connect(function()
-    AutoRaid = not AutoRaid
-    if AutoRaid then
-        AutoRaidBtn.Text = "Auto Raid: ON"
-        AutoRaidBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 255)
-        StatusLabel.Text = "Status: Auto Raid enabled"
-    else
-        AutoRaidBtn.Text = "Auto Raid: OFF"
-        AutoRaidBtn.BackgroundColor3 = Color3.fromRGB(45, 25, 70)
-        RaidBusy = false
-        if activeTween then
-            activeTween:Cancel()
-            activeTween = nil
-        end
-        StatusLabel.Text = active and "Status: Farming..." or "Status: Disabled"
-    end
-end)
-
-TPBtn.MouseButton1Click:Connect(function()
-    if CurrentFruit then
-        local handle = CurrentFruit:FindFirstChild("Handle") or CurrentFruit:FindFirstChildOfClass("Part") or CurrentFruit:FindFirstChildOfClass("MeshPart")
-        if handle then
-            if active then toggleScript() end
-            if Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
-                Player.Character.HumanoidRootPart.CFrame = CFrame.new(handle.Position + Vector3.new(0, 4, 0))
-                StatusLabel.Text = "Teleported to " .. getFruitName(CurrentFruit)
-            end
-        end
-    else
-        StatusLabel.Text = "No active fruit to teleport to!"
-    end
-end)
-
-YesBtn.MouseButton1Click:Connect(function()
-    scriptRunning = false
-    active = false
-    AutoRaid = false
+    StopMovement()
     RaidBusy = false
-    if activeTween then activeTween:Cancel() end
-    if WorkspaceConnection then WorkspaceConnection:Disconnect() end
-    removeSuspension()
-    ScreenGui:Destroy()
-end)
 
-local function setupDeathListener(char)
-    local hum = char:WaitForChild("Humanoid", 5)
-    if hum then
-        hum.Died:Connect(function()
-            removeSuspension()
-        end)
-    end
 end
 
-Player.CharacterAdded:Connect(function(newChar)
-    if not scriptRunning then return end
-    setupDeathListener(newChar)
-    if active then
-        task.wait(1.5)
-        pressJ()
+--==================================================
+-- MAIN CONTROLLER
+--==================================================
+
+task.spawn(function()
+
+    while ScreenGui.Parent do
+
+        if Enabled then
+
+            if AutoRaid
+                and IsRaidActive() then
+
+                if not RaidBusy then
+
+                    task.spawn(
+                        RunAutoRaid
+                    )
+
+                end
+
+                task.wait(0.15)
+
+            elseif not RaidBusy then
+
+                local Chest =
+                    GetChest()
+
+                if Chest then
+
+                    local Success,
+                        ChestCFrame =
+                        pcall(function()
+
+                            return Chest:GetPivot()
+
+                        end)
+
+                    if Success and ChestCFrame then
+
+                        if Mode == "Tween" then
+
+                            SmoothMove(
+                                ChestCFrame
+                            )
+
+                        else
+
+                            TeleportMove(
+                                ChestCFrame
+                            )
+
+                        end
+
+                        task.wait(0.08)
+
+                        local Root =
+                            GetRoot()
+
+                        if Root
+                            and Chest.Parent then
+
+                            if typeof(
+                                firetouchinterest
+                            ) == "function" then
+
+                                pcall(function()
+
+                                    firetouchinterest(
+                                        Chest,
+                                        Root,
+                                        0
+                                    )
+
+                                    task.wait(0.03)
+
+                                    firetouchinterest(
+                                        Chest,
+                                        Root,
+                                        1
+                                    )
+
+                                end)
+
+                            end
+
+                            if typeof(
+                                firesignal
+                            ) == "function" then
+
+                                pcall(function()
+
+                                    firesignal(
+                                        Chest.Touched,
+                                        Root
+                                    )
+
+                                end)
+
+                            end
+
+                        end
+
+                    end
+
+                else
+
+                    task.wait(0.4)
+
+                end
+
+            end
+
+        else
+
+            task.wait(0.15)
+
+        end
+
     end
+
 end)
 
-if Player.Character then
-    setupDeathListener(Player.Character)
-end
+--==================================================
+-- START / STOP
+--==================================================
+
+Toggle.MouseButton1Click:Connect(
+    function()
+
+        Enabled = not Enabled
+
+        if Enabled then
+
+            Toggle.Text = "STOP"
+
+            Toggle.BackgroundColor3 =
+                Color3.fromRGB(
+                    45,
+                    110,
+                    65
+                )
+
+            Status.Text =
+                "● Status: ON"
+
+            Status.TextColor3 =
+                Color3.fromRGB(
+                    80,
+                    255,
+                    120
+                )
+
+        else
+
+            StopMovement()
+
+            Toggle.Text =
+                "START"
+
+            Toggle.BackgroundColor3 =
+                Color3.fromRGB(
+                    45,
+                    45,
+                    55
+                )
+
+            Status.Text =
+                "● Status: OFF"
+
+            Status.TextColor3 =
+                Color3.fromRGB(
+                    255,
+                    80,
+                    80
+                )
+
+        end
+
+    end
+)
+
+--==================================================
+-- AUTO RAID TOGGLE
+--==================================================
+
+RaidButton.MouseButton1Click:Connect(
+    function()
+
+        AutoRaid = not AutoRaid
+
+        if AutoRaid then
+
+            RaidButton.Text =
+                "AUTO RAID: ON"
+
+            RaidButton.BackgroundColor3 =
+                Color3.fromRGB(
+                    120,
+                    55,
+                    180
+                )
+
+        else
+
+            RaidButton.Text =
+                "AUTO RAID: OFF"
+
+            RaidButton.BackgroundColor3 =
+                Color3.fromRGB(
+                    45,
+                    45,
+                    55
+                )
+
+            if RaidBusy then
+                StopMovement()
+            end
+
+        end
+
+    end
+)
+
+--==================================================
+-- MODE
+--==================================================
+
+ModeButton.MouseButton1Click:Connect(
+    function()
+
+        StopMovement()
+
+        if Mode == "Tween" then
+
+            Mode = "Teleport"
+            ModeButton.Text = "TELEPORT"
+
+        else
+
+            Mode = "Tween"
+            ModeButton.Text = "TWEEN"
+
+        end
+
+    end
+)
+
+--==================================================
+-- SPEED
+--==================================================
+
+SpeedBox.FocusLost:Connect(
+    function()
+
+        local Number =
+            tonumber(
+                SpeedBox.Text
+            )
+
+        if Number then
+
+            TweenSpeed =
+                math.clamp(
+                    Number,
+                    1,
+                    10000
+                )
+
+            SpeedBox.Text =
+                tostring(
+                    TweenSpeed
+                )
+
+        else
+
+            SpeedBox.Text =
+                tostring(
+                    TweenSpeed
+                )
+
+        end
+
+    end
+)
+
+--==================================================
+-- MINIMIZE
+--==================================================
+
+local Minimized = false
+local OriginalSize = Main.Size
+
+Minimize.MouseButton1Click:Connect(
+    function()
+
+        Minimized = not Minimized
+
+        if Minimized then
+
+            Content.Visible = false
+
+            Main.Size =
+                UDim2.new(
+                    0,
+                    280,
+                    0,
+                    40
+                )
+
+            Minimize.Text = "+"
+
+        else
+
+            Content.Visible = true
+
+            Main.Size =
+                OriginalSize
+
+            Minimize.Text = "—"
+
+        end
+
+    end
+)
+
+--==================================================
+-- CLOSE
+--==================================================
+
+Close.MouseButton1Click:Connect(
+    function()
+
+        Enabled = false
+        AutoRaid = false
+
+        StopMovement()
+
+        ScreenGui:Destroy()
+
+    end
+)
