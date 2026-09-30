@@ -363,11 +363,11 @@ local function createTab(name, icon, order)
     return button
 end
 
-local StatusTab = createTab("Status", "◉", 1)
-local FarmingTab = createTab("Farm", "⌂", 2)
+local StatusTab = createTab("Status", "⌛", 1)
+local FarmingTab = createTab("Farm", "🏠", 2)
 local FarmSettingsTab = createTab("Farm Settings", "☷", 3)
-local RaidsTab = createTab("Raids", "⚔", 4)
-local FruitsTab = createTab("Fruits", "✦", 5)
+local RaidsTab = createTab("Raids", "☢️", 4)
+local FruitsTab = createTab("Fruits", "🍎", 5)
 local LocalPlayerTab = createTab("Local Player", "♙", 6)
 
 -- Right side
